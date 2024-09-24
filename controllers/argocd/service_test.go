@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -80,4 +82,47 @@ func TestEnsureAutoTLSAnnotation(t *testing.T) {
 		needUpdate = ensureAutoTLSAnnotation(fakeClient, svc, "some-secret", false)
 		assert.Equal(t, needUpdate, false)
 	})
+}
+
+// If `remote` field is used in CR, then the component resources should not be created
+func TestReconcileArgoCD_reconcileRedisWithRemoteEn(t *testing.T) {
+	cr := makeTestArgoCD()
+
+	resObjs := []client.Object{cr}
+	subresObjs := []client.Object{cr}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch)
+
+	redisRemote := "https://remote.redis.instance"
+
+	cr.Spec.Redis.Remote = &redisRemote
+	assert.NoError(t, r.reconcileRedisService(cr))
+
+	s := &corev1.Service{}
+
+	assert.ErrorContains(t, r.Client.Get(context.TODO(), types.NamespacedName{Name: cr.Name + "-redis", Namespace: cr.Namespace}, s),
+		"services \"argocd-redis\" not found")
+}
+
+func TestReconcileArgoCD_reconcileRepoServerWithRemoteEnabled(t *testing.T) {
+	cr := makeTestArgoCD()
+
+	resObjs := []client.Object{cr}
+	subresObjs := []client.Object{cr}
+	runtimeObjs := []runtime.Object{}
+	sch := makeTestReconcilerScheme(argoproj.AddToScheme)
+	cl := makeTestReconcilerClient(sch, resObjs, subresObjs, runtimeObjs)
+	r := makeTestReconciler(cl, sch)
+
+	repoServerRemote := "https://remote.repo-server.instance"
+
+	cr.Spec.Repo.Remote = &repoServerRemote
+	assert.NoError(t, r.reconcileRepoService(cr))
+
+	s := &corev1.Service{}
+
+	assert.ErrorContains(t, r.Client.Get(context.TODO(), types.NamespacedName{Name: cr.Name + "-repo-server", Namespace: cr.Namespace}, s),
+		"services \"argocd-repo-server\" not found")
 }
